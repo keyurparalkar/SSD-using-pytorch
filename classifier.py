@@ -19,26 +19,45 @@ class resnetRcnn(nn.Module):
         super(resnetRcnn, self).__init__()
 
         #copying feature extraction part
-        self.features = nn.Sequential(*list(model.children())[:-1])
+        self.features = nn.Sequential(*list(model.children())[:-2])
 
-        #Classification
-        self.classify_fc_1 = nn.Linear(512,512)
-        self.classify_fc_2 = nn.Linear(512,2)  #one class for car and other for background
+        #Classification:
+        self.classify_conv_1 = nn.Conv2d(in_channels=512,out_channels=2,kernel_size=3,stride=2,padding=1) #one for car other for background
+        
+        self.conv = nn.Conv2d(in_channels=512,out_channels=256,kernel_size=3,stride=2,padding=1)
+        self.classify_conv_2 = nn.Conv2d(in_channels=256,out_channels=2,kernel_size=3,stride=2,padding=1)
 
-        #Bounding box regression
-        self.bb_fc_1 = nn.Linear(512,512)
-        self.bb_fc_2 = nn.Linear(512,4)
+        #bounding_box regression:
+        self.bnd_conv_1 = nn.Conv2d(in_channels=512,out_channels=4,kernel_size=3,stride=2,padding=1)
+
+        self.bnd_conv_2 = nn.Conv2d(in_channels=256,out_channels=4,kernel_size=3,stride=2,padding=1)
 
     def forward(self,x):
         t = self.features(x)
-        t = t.view(t.size(0),-1)
-        x = F.relu(self.classify_fc_1(t))
-        x = F.relu(self.classify_fc_2(x))
+        # t = t.view(t.size(0),-1)
+        # x = F.relu(self.classify_fc_1(t))
+        # x = F.relu(self.classify_fc_2(x))
 
-        y = self.bb_fc_1(t)
-        y = self.bb_fc_2(y)
+        # y = self.bb_fc_1(t)
+        # y = self.bb_fc_2(y)
 
-        return x,y
+        # size=(4x4)
+        m = self.classify_conv_1(t)   
+
+        # size=(2x2)
+        p = self.conv(t)
+        p = self.classify_conv_2(p)
+
+        # size=(4x4)
+        n = self.bnd_conv_1(t)
+
+        # size=(2x2)
+        q = self.conv(t)
+        q = self.bnd_conv_2(q)
+
+        #at last we can concat results from different sizes that is from 4x4 and 2x2    
+        print(p.size(),q.size())
+        return p,q
 
 
 device = torch.device('cuda:0')
@@ -70,11 +89,12 @@ def train_model(model,  optimizer, scheduler, criterion_classification=None, cri
             bndbox_ymax = batch['bndbox']['ymax'].to(device)
             bndbox = {'xmin':bndbox_xmin,'ymin':bndbox_ymin,'xmax':bndbox_xmax,'ymax':bndbox_ymax}
 
-            print(bndbox)
+            # print(bndbox)
             optimizer.zero_grad()
 
             if(mode == 'train'):
                 pred_label,pred_box = model(inputs)
+                print(pred_label,pred_box)
                 # print("PREDICTION ==== \n:",pred_label,pred_box)
                 # print("LABELS ====== \n:",labels)
                 # _, preds = torch.max(outputs)
@@ -99,8 +119,8 @@ model_res = resnetRcnn(model)
 model_res = model_res.to(device)
 
 criterion_classify = nn.CrossEntropyLoss()
-criterion_bndbox = nn.L2
+# criterion_bndbox = nn.L2
 optimizer_res = optim.SGD(model_res.parameters(), lr=0.001, momentum=0.9)
 exp_lr_scheduler = lr_scheduler.StepLR(optimizer_res,step_size=7,gamma=0.1)
 
-train_model(model=model_res,criterion_classification=criterion_res, optimizer=optimizer_res,scheduler=exp_lr_scheduler)
+train_model(model=model_res,criterion_classification=criterion_classify, optimizer=optimizer_res,scheduler=exp_lr_scheduler)
